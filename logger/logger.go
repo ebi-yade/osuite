@@ -106,18 +106,18 @@ func New(w io.Writer, projectID string, minLevel slog.Level, opts ...LoggerOptio
 	return logger
 }
 
-type EntryOption func(*EntryParams)
+type EntryOption func(*Entry)
 
-type EntryParams struct {
-	level       slog.Level
-	msg         string
-	attrs       []slog.Attr
-	skipCaller  int
-	errorReport bool
+type Entry struct {
+	level           slog.Level
+	msg             string
+	additionalAttrs []slog.Attr
+	skipCaller      int
+	errorReport     bool
 }
 
-func NewEntryParams(level slog.Level, msg string, opts ...EntryOption) EntryParams {
-	params := EntryParams{
+func NewEntry(level slog.Level, msg string, opts ...EntryOption) Entry {
+	params := Entry{
 		level: level,
 		msg:   msg,
 	}
@@ -129,21 +129,21 @@ func NewEntryParams(level slog.Level, msg string, opts ...EntryOption) EntryPara
 
 // WithAttrs sets the attributes of the entry.
 func WithAttrs(attrs ...slog.Attr) EntryOption {
-	return func(o *EntryParams) {
-		o.attrs = attrs
+	return func(o *Entry) {
+		o.additionalAttrs = attrs
 	}
 }
 
 // WithSkipCaller sets the number of stack frames to skip when getting the caller.
 func WithSkipCaller(skip int) EntryOption {
-	return func(o *EntryParams) {
+	return func(o *Entry) {
 		o.skipCaller = skip
 	}
 }
 
 // WithErrorReport sets whether the entry should be reported as an error.
 func WithErrorReport(report bool) EntryOption {
-	return func(o *EntryParams) {
+	return func(o *Entry) {
 		o.errorReport = report
 	}
 }
@@ -151,15 +151,10 @@ func WithErrorReport(report bool) EntryOption {
 // Design note:
 // The write method is the only method to output the log entry.
 // And we keep it called by user's code with just one level of wrapping.
-func (l *Logger) write(ctx context.Context, params EntryParams) {
-	if !l.handler.Enabled(ctx, params.level) {
+func (l *Logger) write(ctx context.Context, entry Entry) {
+	if !l.handler.Enabled(ctx, entry.level) {
 		return
 	}
-
-	//params := &EntryParams{}
-	//for _, apply := range opts {
-	//	apply(params)
-	//}
 
 	// generate information to ensure the uniqueness of the entry
 	now := time.Now()
@@ -168,13 +163,13 @@ func (l *Logger) write(ctx context.Context, params EntryParams) {
 	// 0: runtime.Callers, 1: Logger.write, 2: Logger.<Exported Method>, 3: <Your Code>
 	const defaultSkipCaller = 3
 	pcs := [1]uintptr{}
-	runtime.Callers(defaultSkipCaller+params.skipCaller, pcs[:])
-	r := slog.NewRecord(now, params.level, params.msg, pcs[0])
+	runtime.Callers(defaultSkipCaller+entry.skipCaller, pcs[:])
+	r := slog.NewRecord(now, entry.level, entry.msg, pcs[0])
 
 	attrs := []slog.Attr{
 		slog.String(logInsertIDKey, insertId),
 	}
-	if params.errorReport {
+	if entry.errorReport {
 		attrs = append(attrs, logAttrReporting)
 	}
 	if traceID := l.getTraceID(ctx); traceID != "" {
@@ -183,7 +178,7 @@ func (l *Logger) write(ctx context.Context, params EntryParams) {
 			attrs = append(attrs, slog.String(logSpanIDKey, spanID))
 		}
 	}
-	attrs = append(attrs, params.attrs...)
+	attrs = append(attrs, entry.additionalAttrs...)
 	r.AddAttrs(attrs...)
 
 	// It is safe to retry because the uniqueness of the entry is guaranteed by time and insertId.
@@ -192,52 +187,52 @@ func (l *Logger) write(ctx context.Context, params EntryParams) {
 }
 
 func (l *Logger) Default(ctx context.Context, msg string, opts ...EntryOption) {
-	l.write(ctx, NewEntryParams(LevelDefault, msg, opts...))
+	l.write(ctx, NewEntry(LevelDefault, msg, opts...))
 }
 
 func (l *Logger) Debug(ctx context.Context, msg string, opts ...EntryOption) {
-	l.write(ctx, NewEntryParams(LevelDebug, msg, opts...))
+	l.write(ctx, NewEntry(LevelDebug, msg, opts...))
 }
 
 func (l *Logger) Info(ctx context.Context, msg string, opts ...EntryOption) {
-	l.write(ctx, NewEntryParams(LevelInfo, msg, opts...))
+	l.write(ctx, NewEntry(LevelInfo, msg, opts...))
 }
 
 func (l *Logger) Notice(ctx context.Context, msg string, opts ...EntryOption) {
-	l.write(ctx, NewEntryParams(LevelNotice, msg, opts...))
+	l.write(ctx, NewEntry(LevelNotice, msg, opts...))
 }
 
 func (l *Logger) Warn(ctx context.Context, msg string, opts ...EntryOption) {
-	l.write(ctx, NewEntryParams(LevelWarning, msg, opts...))
+	l.write(ctx, NewEntry(LevelWarning, msg, opts...))
 }
 
 func (l *Logger) Error(ctx context.Context, err error, opts ...EntryOption) {
-	params := NewEntryParams(LevelError, l.printErr(err), opts...)
-	params.errorReport = true
-	l.write(ctx, params)
+	entry := NewEntry(LevelError, l.printErr(err), opts...)
+	entry.errorReport = true
+	l.write(ctx, entry)
 }
 
 func (l *Logger) Critical(ctx context.Context, err error, opts ...EntryOption) {
-	params := NewEntryParams(LevelCritical, l.printErr(err), opts...)
-	params.errorReport = true
-	l.write(ctx, params)
+	entry := NewEntry(LevelCritical, l.printErr(err), opts...)
+	entry.errorReport = true
+	l.write(ctx, entry)
 }
 
 func (l *Logger) Alert(ctx context.Context, err error, opts ...EntryOption) {
-	params := NewEntryParams(LevelAlert, l.printErr(err), opts...)
-	params.errorReport = true
-	l.write(ctx, params)
+	entry := NewEntry(LevelAlert, l.printErr(err), opts...)
+	entry.errorReport = true
+	l.write(ctx, entry)
 }
 
 func (l *Logger) Emergency(ctx context.Context, err error, opts ...EntryOption) {
-	params := NewEntryParams(LevelEmergency, l.printErr(err), opts...)
-	params.errorReport = true
-	l.write(ctx, params)
+	entry := NewEntry(LevelEmergency, l.printErr(err), opts...)
+	entry.errorReport = true
+	l.write(ctx, entry)
 }
 
 // Custom provides you a way to write a log entry with high flexibility,
 // but we will not make an effort to keep the backward compatibility of this method.
 // We recommend you to implement your own logger when you want to use this method.
-func (l *Logger) Custom(ctx context.Context, params EntryParams) {
-	l.write(ctx, params)
+func (l *Logger) Custom(ctx context.Context, entry Entry) {
+	l.write(ctx, entry)
 }
