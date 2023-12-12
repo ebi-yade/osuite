@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"runtime"
+	"sync"
 	"time"
 
 	"cloud.google.com/go/logging"
@@ -70,6 +72,16 @@ func WithSpanID(f func(context.Context) string) LoggerOption {
 		l.getSpanID = f
 	}
 }
+
+// MustDefault returns the default logger.
+// Note: This method panics if GOOGLE_CLOUD_PROJECT is not set.
+var MustDefault = sync.OnceValue(func() *Logger {
+	projectID := os.Getenv("GOOGLE_CLOUD_PROJECT")
+	if projectID == "" {
+		panic("GOOGLE_CLOUD_PROJECT is not set")
+	}
+	return New(os.Stderr, projectID, slog.Level(logging.Default))
+})
 
 func New(w io.Writer, projectID string, minLevel slog.Level, opts ...LoggerOption) *Logger {
 	replaceAttr := func(groups []string, a slog.Attr) slog.Attr {
